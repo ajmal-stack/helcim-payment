@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mock Helcim Payment</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        line-height: 1.6;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+        background-color: #f5f5f5;
+      }
+      .container {
+        background-color: white;
+        border-radius: 8px;
+        padding: 30px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      }
+      h1 {
+        color: #333;
+        margin-top: 0;
+      }
+      .form-group {
+        margin-bottom: 20px;
+      }
+      label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: bold;
+      }
+      input {
+        width: 100%;
+        padding: 10px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        font-size: 16px;
+      }
+      .btn {
+        background-color: #4caf50;
+        color: white;
+        border: none;
+        padding: 12px 24px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 16px;
+        font-weight: bold;
+      }
+      .btn:hover {
+        background-color: #45a049;
+      }
+      .test-badge {
+        display: inline-block;
+        background-color: #ff9800;
+        color: white;
+        padding: 5px 10px;
+        border-radius: 4px;
+        font-size: 14px;
+        font-weight: bold;
+        margin-bottom: 20px;
+      }
+      .card-icons {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 20px;
+      }
+      .card-icons img {
+        height: 30px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="test-badge">TEST MODE</div>
+      <h1>Mock Helcim Payment Gateway</h1>
+      <p>
+        This is a mock payment page for testing purposes. No actual payment will
+        be processed.
+      </p>
+
+      <div id="payment-details"></div>
+
+      <form id="payment-form">
+        <div class="form-group">
+          <label for="card-number">Credit Card Number</label>
+          <input
+            type="text"
+            id="card-number"
+            placeholder="4242 4242 4242 4242"
+            value="4242 4242 4242 4242"
+          />
+        </div>
+        <div class="form-group">
+          <label for="card-expiry">Expiry Date (MM/YY)</label>
+          <input
+            type="text"
+            id="card-expiry"
+            placeholder="12/25"
+            value="12/25"
+          />
+        </div>
+        <div class="form-group">
+          <label for="card-cvv">CVV</label>
+          <input type="text" id="card-cvv" placeholder="123" value="123" />
+        </div>
+        <button type="submit" class="btn">Complete Payment</button>
+      </form>
+    </div>
+
+    <script>
+      document.addEventListener('DOMContentLoaded', function () {
+        // Parse URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const paymentId = urlParams.get('id');
+        const returnUrl = urlParams.get('return');
+
+        // Display payment details if available
+        const detailsElement = document.getElementById('payment-details');
+        if (paymentId) {
+          fetch(`/api/helcim/payment-status/${paymentId}`)
+            .then((response) => response.json())
+            .then((data) => {
+              if (data.success) {
+                detailsElement.innerHTML = `
+                  <div class="form-group">
+                    <p><strong>Payment ID:</strong> ${paymentId}</p>
+                    <p><strong>Amount:</strong> $${parseFloat(
+                      data.amount
+                    ).toFixed(2)}</p>
+                    <p><strong>Status:</strong> ${data.status || 'Pending'}</p>
+                  </div>
+                `;
+              }
+            })
+            .catch((error) => {
+              console.error('Error fetching payment details:', error);
+            });
+        }
+
+        // Handle form submission
+        document
+          .getElementById('payment-form')
+          .addEventListener('submit', function (e) {
+            e.preventDefault();
+
+            if (paymentId) {
+              // Call the complete payment endpoint
+              fetch(`/api/helcim/complete-payment/${paymentId}`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({}),
+              })
+                .then((response) => response.json())
+                .then((data) => {
+                  if (data.success) {
+                    // Redirect to the return URL with success parameters
+                    const redirectUrl = new URL(returnUrl);
+                    redirectUrl.searchParams.append('status', 'approved');
+                    redirectUrl.searchParams.append(
+                      'txnId',
+                      data.transactionId
+                    );
+                    window.location.href = redirectUrl.toString();
+                  } else {
+                    alert('Payment failed: ' + (data.error || 'Unknown error'));
+                  }
+                })
+                .catch((error) => {
+                  console.error('Error completing payment:', error);
+                  alert('Payment processing error. Please try again.');
+                });
+            } else {
+              alert('Invalid payment session. Please try again.');
+            }
+          });
+      });
+    </script>
+  </body>
+</html>
