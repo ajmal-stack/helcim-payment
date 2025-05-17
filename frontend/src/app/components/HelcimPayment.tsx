@@ -28,6 +28,7 @@ const HelcimPayment = ({
   homepageUrl,
 }: HelcimPaymentProps) => {
   const [loading, setLoading] = useState<boolean>(true);
+  const [paymentLoading, setPaymentLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [checkoutToken, setCheckoutToken] = useState<string | null>(null);
   const router = useRouter();
@@ -62,6 +63,10 @@ const HelcimPayment = ({
 
       if (event.data.eventName === helcimPayJsIdentifierKey) {
         console.log('Received event from HelcimPay.js:', event.data);
+        console.log('Event origin:', event.origin);
+        console.log('Environment variables:', {
+          apiUrl: process.env.NEXT_PUBLIC_API_URL || 'not set',
+        });
 
         if (event.data.eventStatus === 'ABORTED') {
           console.error('Transaction failed!', event.data.eventMessage);
@@ -71,6 +76,9 @@ const HelcimPayment = ({
               ? event.data.eventMessage
               : 'Payment was declined or cancelled.'
           );
+
+          // Reset loading state
+          setPaymentLoading(false);
 
           // Remove the iframe
           removeHelcimPayIframe();
@@ -126,6 +134,7 @@ const HelcimPayment = ({
 
         if (event.data.eventStatus === 'HIDE') {
           console.log('Payment modal was closed');
+          setPaymentLoading(false);
           removeHelcimPayIframe();
           onCancel();
         }
@@ -200,18 +209,50 @@ const HelcimPayment = ({
   const openHelcimPayModal = () => {
     if (!checkoutToken) return;
 
+    setPaymentLoading(true);
+
     // Call the HelcimPay.js function to open the modal
     // @ts-ignore - this function is added by the external script
     window.appendHelcimPayIframe(checkoutToken, true);
+
+    // Set a timeout to reset loading state if iframe doesn't load
+    setTimeout(() => {
+      setPaymentLoading(false);
+    }, 5000);
   };
 
   // Function to remove the HelcimPay.js iframe
   const removeHelcimPayIframe = () => {
+    // Always reset payment loading state when iframe is removed
+    setPaymentLoading(false);
+
     const frame = document.getElementById('helcimPayIframe');
     if (frame instanceof HTMLIFrameElement) {
       frame.remove();
     }
   };
+
+  // Add event listener to iframe load
+  useEffect(() => {
+    const handleIframeLoaded = () => {
+      setPaymentLoading(false);
+    };
+
+    window.addEventListener('message', (event) => {
+      // Check if iframe is loaded and visible
+      if (
+        event.data &&
+        typeof event.data === 'object' &&
+        event.data.eventStatus === 'READY'
+      ) {
+        handleIframeLoaded();
+      }
+    });
+
+    return () => {
+      // Cleanup if needed
+    };
+  }, []);
 
   if (loading) {
     return (
@@ -278,9 +319,17 @@ const HelcimPayment = ({
         </button>
         <button
           onClick={openHelcimPayModal}
-          className='flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors'
+          disabled={paymentLoading}
+          className='flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors flex items-center justify-center'
         >
-          Pay Now
+          {paymentLoading ? (
+            <>
+              <div className='animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2'></div>
+              Processing...
+            </>
+          ) : (
+            'Pay Now'
+          )}
         </button>
       </div>
     </div>

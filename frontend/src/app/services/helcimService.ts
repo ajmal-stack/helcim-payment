@@ -1,7 +1,9 @@
 import axios from 'axios';
 
-// Make sure this URL matches the backend's API endpoint structure
-const API_BASE_URL = 'http://localhost:5000/api/helcim';
+// Use environment variable with fallback to localhost for development
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL
+  ? `${process.env.NEXT_PUBLIC_API_URL}/helcim`
+  : 'http://localhost:5000/api/helcim';
 
 interface PaymentInitializeRequest {
   amount: number;
