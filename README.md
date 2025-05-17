@@ -8,7 +8,6 @@ This guide provides step-by-step instructions for implementing Helcim payment pr
 - npm or yarn
 - A Helcim merchant account
 - Helcim API credentials
-  - Account ID
   - API Token
   - Terminal ID (for HelcimPay.js)
 
@@ -35,7 +34,6 @@ Create a `.env.local` file in your project root:
 
 ```env
 NEXT_PUBLIC_HELCIM_TERMINAL_ID=your_terminal_id
-HELCIM_ACCOUNT_ID=your_account_id
 HELCIM_API_TOKEN=your_api_token
 NEXT_PUBLIC_API_BASE_URL=http://localhost:3000/api
 ```
@@ -65,7 +63,6 @@ export async function POST(request: Request) {
           Authorization: `Bearer ${process.env.HELCIM_API_TOKEN}`,
         },
         body: JSON.stringify({
-          accountId: process.env.HELCIM_ACCOUNT_ID,
           amount: data.amount,
           currency: 'USD',
           terminalId: process.env.NEXT_PUBLIC_HELCIM_TERMINAL_ID,

@@ -11,13 +11,11 @@ console.log(
   path.resolve(__dirname, '../.env')
 );
 console.log('HELCIM_API_URL:', process.env.HELCIM_API_URL);
-console.log('HELCIM_ACCOUNT_ID exists:', !!process.env.HELCIM_ACCOUNT_ID);
 console.log('HELCIM_API_TOKEN exists:', !!process.env.HELCIM_API_TOKEN);
 
 // Check if required environment variables are set
 const HELCIM_API_URL =
   process.env.HELCIM_API_URL || 'https://api.helcim.com/v2';
-const HELCIM_ACCOUNT_ID = process.env.HELCIM_ACCOUNT_ID;
 const HELCIM_API_TOKEN = process.env.HELCIM_API_TOKEN;
 
 // Store active payment sessions
@@ -29,13 +27,8 @@ const activePayments = new Map();
 exports.initializePayment = async (req, res) => {
   try {
     console.log('Initialize payment request received:', req.body);
-    const {
-      amount,
-      customerCode,
-      invoiceNumber,
-      returnUrl,
-      homepageUrl, // Add this parameter for redirect after payment
-    } = req.body;
+    const { amount, customerCode, invoiceNumber, returnUrl, homepageUrl } =
+      req.body;
 
     // Validate required fields
     if (!amount || !returnUrl) {
@@ -45,16 +38,9 @@ exports.initializePayment = async (req, res) => {
       });
     }
 
-    // We're no longer using customerCode or invoiceNumber as they're causing errors
-    // const processedCustomerCode = customerCode.replace(/\D/g, '');
-    // console.log('Using customer code:', processedCustomerCode);
-
-    // Check if API credentials are set
-    if (!HELCIM_ACCOUNT_ID || !HELCIM_API_TOKEN) {
-      console.error(
-        'Helcim API credentials are not properly configured in .env file'
-      );
-      console.error('HELCIM_ACCOUNT_ID:', HELCIM_ACCOUNT_ID);
+    // Check if API token is set
+    if (!HELCIM_API_TOKEN) {
+      console.error('Helcim API token is not properly configured in .env file');
       console.error(
         'HELCIM_API_TOKEN length:',
         HELCIM_API_TOKEN ? HELCIM_API_TOKEN.length : 0
@@ -63,7 +49,7 @@ exports.initializePayment = async (req, res) => {
 
       return res.status(500).json({
         success: false,
-        error: 'Helcim API credentials are not configured',
+        error: 'Helcim API token is not configured',
       });
     }
 
@@ -74,7 +60,6 @@ exports.initializePayment = async (req, res) => {
 
     try {
       console.log('Initializing Helcim payment with these details:', {
-        accountId: HELCIM_ACCOUNT_ID,
         amount: parseFloat(amount).toFixed(2),
         returnUrl,
         homepageUrl,
@@ -85,20 +70,20 @@ exports.initializePayment = async (req, res) => {
 
       // Build request payload according to latest Helcim API documentation
       const payload = {
-        paymentType: 'purchase', // Required
-        amount: parseFloat(amount), // Required, numeric type
-        currency: 'USD', // Required - use USD currency
-        paymentMethod: 'cc-ach', // Specify payment method (credit card)
-        hasConvenienceFee: 1, // 1- Enable / 0- Disable convenience fee
-        hideExistingPaymentDetails: 1, // 1- Enable / 0- Disable existing payment details
-        setAsDefaultPaymentMethod: 1, // 1- Enable / 0- Disable set as default payment method
-        digitalWallet: '{"google-pay": 1}', // Specify digital wallet (apple pay)
-        displayContactFields: 1, // 1- Enable / 0- Disable contact fields for customer info
-        test: true, // Set to true for test mode
-        returnUrl: returnUrl, // Must be the success page URL for proper post-payment redirection
-        cancelUrl: returnUrl, // Return URL for cancellations
-        confirmationScreen: false, // Disable Helcim's confirmation to ensure our redirect works
-        displayContactFields: 1, // Enable contact fields for customer info
+        paymentType: 'purchase',
+        amount: parseFloat(amount),
+        currency: 'USD',
+        paymentMethod: 'cc-ach',
+        hasConvenienceFee: 1,
+        hideExistingPaymentDetails: 1,
+        setAsDefaultPaymentMethod: 1,
+        digitalWallet: '{"google-pay": 1}',
+        displayContactFields: 1,
+        test: true,
+        returnUrl: returnUrl,
+        cancelUrl: returnUrl,
+        confirmationScreen: false,
+        displayContactFields: 1,
       };
 
       // Add optional fields if they're provided
@@ -126,14 +111,8 @@ exports.initializePayment = async (req, res) => {
         'Making request to URL:',
         `${HELCIM_API_URL}/helcim-pay/initialize`
       );
-      console.log(
-        'Using API token:',
-        `${HELCIM_API_TOKEN.substring(0, 5)}...${HELCIM_API_TOKEN.substring(
-          HELCIM_API_TOKEN.length - 5
-        )}`
-      );
 
-      // Create API request options exactly matching the reference
+      // Create API request options
       const options = {
         method: 'POST',
         url: `${HELCIM_API_URL}/helcim-pay/initialize`,
@@ -145,23 +124,7 @@ exports.initializePayment = async (req, res) => {
         data: payload,
       };
 
-      console.log(
-        'Request options:',
-        JSON.stringify(
-          {
-            method: options.method,
-            url: options.url,
-            headers: {
-              ...options.headers,
-              'api-token': '[REDACTED]',
-            },
-          },
-          null,
-          2
-        )
-      );
-
-      // Make the request using the exact format
+      // Make the request
       const response = await axios.request(options);
 
       console.log(
@@ -181,7 +144,7 @@ exports.initializePayment = async (req, res) => {
         checkoutToken: response.data.checkoutToken,
         secretToken: response.data.secretToken,
         paymentUrl: helcimPaymentUrl,
-        homepageUrl: homepageUrl || returnUrl, // Store the homepage URL for redirection
+        homepageUrl: homepageUrl || returnUrl,
       });
 
       console.log(
@@ -212,14 +175,13 @@ exports.initializePayment = async (req, res) => {
         console.error('No response received, request was:', apiError.request);
       }
 
-      // Return error to client with detailed information
       return res.status(400).json({
         success: false,
         error:
           apiError.response?.data?.errors ||
           'Error connecting to Helcim payment service',
         details: apiError.message,
-        fullError: apiError.response?.data, // Include the full error response
+        fullError: apiError.response?.data,
       });
     }
   } catch (error) {
@@ -271,18 +233,17 @@ exports.processPurchase = async (req, res) => {
       const response = await axios.post(
         `${HELCIM_API_URL}/payment/purchase`,
         {
-          // API token is used in the header, not accountId in the payload
-          amount: parseFloat(amount), // Numeric type, not string with toFixed
+          amount: parseFloat(amount),
           currency,
-          cardNumber: cardNumber.replace(/\s+/g, ''), // Remove spaces
+          cardNumber: cardNumber.replace(/\s+/g, ''),
           cardExpiry: {
             month: expiryMonth,
-            year: `20${expiryYear}`, // Assume 20xx for year
+            year: `20${expiryYear}`,
           },
           cardCVV,
           customerCode,
           invoiceNumber,
-          test: true, // Set to false in production
+          test: true,
           description: description || `Invoice: ${invoiceNumber}`,
           billingAddress,
         },
@@ -398,8 +359,8 @@ exports.checkPaymentStatus = async (req, res) => {
         success: !!response.data.paid,
         status: response.data.paid ? 'completed' : 'pending',
         transactionId: response.data.transactionId || response.data.id || null,
-        redirectUrl: finalRedirectUrl, // Include the redirect URL for completed payments
-        timestamp: new Date().getTime(), // Add timestamp to ensure response is fresh
+        redirectUrl: finalRedirectUrl,
+        timestamp: new Date().getTime(),
       });
     } catch (apiError) {
       console.error(
@@ -441,10 +402,8 @@ exports.verifyHelcimPayment = async (req, res) => {
 
     // Extract relevant data from the transaction
     const transactionDetails = transactionData.data;
-    const { transactionId, amount, status, hash } = transactionDetails;
+    const { transactionId, amount, status } = transactionDetails;
 
-    // Very basic validation - in production, you would want to verify the hash
-    // against your own signature to prevent tampering
     if (!transactionId) {
       return res.status(400).json({
         success: false,
@@ -452,35 +411,9 @@ exports.verifyHelcimPayment = async (req, res) => {
       });
     }
 
-    // In a real implementation, you would verify the transaction with Helcim API
-    // Here's a placeholder for that implementation
-
-    /*
-    // Example of how to verify with Helcim API (implementation depends on Helcim's API)
-    const verificationResponse = await axios.request({
-      method: 'GET',
-      url: `${HELCIM_API_URL}/transactions/${transactionId}`,
-      headers: {
-        accept: 'application/json',
-        'api-token': HELCIM_API_TOKEN,
-      }
-    });
-    
-    // Check if the transaction exists and is valid
-    if (!verificationResponse.data || verificationResponse.data.status !== 'APPROVED') {
-      return res.status(400).json({
-        success: false,
-        error: 'Transaction verification failed',
-      });
-    }
-    */
-
     // For now, we'll assume the transaction is valid if it has a transaction ID
     // and the status field indicates approval (for credit card transactions)
     const isApproved = transactionDetails.status === 'APPROVED';
-
-    // Store the transaction in your database
-    // [Your database code here]
 
     return res.status(200).json({
       success: isApproved,
