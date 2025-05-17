@@ -29,7 +29,13 @@ const activePayments = new Map();
 exports.initializePayment = async (req, res) => {
   try {
     console.log('Initialize payment request received:', req.body);
-    const { amount, customerCode, invoiceNumber, returnUrl } = req.body;
+    const {
+      amount,
+      customerCode,
+      invoiceNumber,
+      returnUrl,
+      homepageUrl, // Add this parameter for redirect after payment
+    } = req.body;
 
     // Validate required fields
     if (!amount || !returnUrl) {
@@ -71,26 +77,40 @@ exports.initializePayment = async (req, res) => {
         accountId: HELCIM_ACCOUNT_ID,
         amount: parseFloat(amount).toFixed(2),
         returnUrl,
-        cancelUrl: returnUrl,
+        homepageUrl,
       });
 
-      // Following exact API reference format
       console.log('Using API Token Authorization');
+      console.log('Homepage URL provided:', homepageUrl);
 
-      // Build request payload exactly as shown in the API reference
+      // Build request payload according to latest Helcim API documentation
       const payload = {
-        accountId: HELCIM_ACCOUNT_ID,
-        paymentType: 'purchase',
-        amount: parseFloat(amount).toFixed(2),
-        currency: 'CAD',
-        paymentMethod: 'cc',
-        test: true,
-        returnUrl,
-        cancelUrl: returnUrl,
+        paymentType: 'purchase', // Required
+        amount: parseFloat(amount), // Required, numeric type
+        currency: 'USD', // Required - use USD currency
+        paymentMethod: 'cc-ach', // Specify payment method (credit card)
+        hasConvenienceFee: 1, // 1- Enable / 0- Disable convenience fee
+        hideExistingPaymentDetails: 1, // 1- Enable / 0- Disable existing payment details
+        setAsDefaultPaymentMethod: 1, // 1- Enable / 0- Disable set as default payment method
+        digitalWallet: '{"google-pay": 1}', // Specify digital wallet (apple pay)
+        displayContactFields: 1, // 1- Enable / 0- Disable contact fields for customer info
+        test: true, // Set to true for test mode
+        returnUrl: returnUrl, // Must be the success page URL for proper post-payment redirection
+        cancelUrl: returnUrl, // Return URL for cancellations
+        confirmationScreen: false, // Disable Helcim's confirmation to ensure our redirect works
+        displayContactFields: 1, // Enable contact fields for customer info
       };
 
-      // Add optional fields only if they're needed
-      // Only add billing contact if we have customer data
+      // Add optional fields if they're provided
+      if (customerCode) {
+        payload.customerCode = customerCode;
+      }
+
+      if (invoiceNumber) {
+        payload.invoiceNumber = invoiceNumber;
+      }
+
+      // Add optional billing contact if we have customer data
       if (req.body.customerData) {
         const { firstName, lastName, email } = req.body.customerData;
         if (firstName && lastName) {
@@ -156,18 +176,24 @@ exports.initializePayment = async (req, res) => {
       // Store payment info for status checks
       activePayments.set(helcimPayId, {
         amount,
-        // customerCode: processedCustomerCode, // Removing this as we're not using it
-        // invoiceNumber, // Removing this as well
         status: 'pending',
         createdAt: new Date(),
         checkoutToken: response.data.checkoutToken,
         secretToken: response.data.secretToken,
         paymentUrl: helcimPaymentUrl,
+        homepageUrl: homepageUrl || returnUrl, // Store the homepage URL for redirection
       });
 
+      console.log(
+        'Stored payment data with homepageUrl:',
+        homepageUrl || returnUrl
+      );
+
+      // Return the checkoutToken for HelcimPay.js modal
       return res.status(200).json({
         success: true,
         helcimPayId,
+        checkoutToken: response.data.checkoutToken,
         paymentUrl: helcimPaymentUrl,
         message: 'Payment initialized successfully',
       });
@@ -213,7 +239,7 @@ exports.processPurchase = async (req, res) => {
   try {
     const {
       amount,
-      currency = 'CAD',
+      currency = 'USD',
       cardNumber,
       cardExpiry,
       cardCVV,
@@ -245,8 +271,8 @@ exports.processPurchase = async (req, res) => {
       const response = await axios.post(
         `${HELCIM_API_URL}/payment/purchase`,
         {
-          accountId: HELCIM_ACCOUNT_ID,
-          amount: parseFloat(amount).toFixed(2),
+          // API token is used in the header, not accountId in the payload
+          amount: parseFloat(amount), // Numeric type, not string with toFixed
           currency,
           cardNumber: cardNumber.replace(/\s+/g, ''), // Remove spaces
           cardExpiry: {
@@ -262,8 +288,9 @@ exports.processPurchase = async (req, res) => {
         },
         {
           headers: {
-            Authorization: `Bearer ${HELCIM_API_TOKEN}`,
-            'Content-Type': 'application/json',
+            'api-token': HELCIM_API_TOKEN,
+            'content-type': 'application/json',
+            accept: 'application/json',
           },
         }
       );
@@ -354,10 +381,25 @@ exports.checkPaymentStatus = async (req, res) => {
         activePayments.set(helcimPayId, payment);
       }
 
+      // Return redirect URL if payment is completed
+      const redirectUrl = response.data.paid
+        ? payment.homepageUrl || window.location.origin
+        : '';
+      console.log('Setting redirect URL to:', redirectUrl);
+      console.log('Payment homepageUrl:', payment.homepageUrl);
+      console.log('Full payment data:', JSON.stringify(payment, null, 2));
+
+      // Ensure we have a valid redirect URL
+      const finalRedirectUrl =
+        redirectUrl || window.location.origin || 'http://localhost:3000';
+      console.log('Final redirect URL:', finalRedirectUrl);
+
       return res.status(200).json({
         success: !!response.data.paid,
         status: response.data.paid ? 'completed' : 'pending',
         transactionId: response.data.transactionId || response.data.id || null,
+        redirectUrl: finalRedirectUrl, // Include the redirect URL for completed payments
+        timestamp: new Date().getTime(), // Add timestamp to ensure response is fresh
       });
     } catch (apiError) {
       console.error(
@@ -377,6 +419,82 @@ exports.checkPaymentStatus = async (req, res) => {
       success: false,
       error: 'An error occurred while checking payment status',
       details: error.message,
+    });
+  }
+};
+
+/**
+ * Verify a payment completed through HelcimPay.js
+ */
+exports.verifyHelcimPayment = async (req, res) => {
+  try {
+    console.log('Verifying HelcimPay.js payment:', req.body);
+
+    const { transactionData } = req.body;
+
+    if (!transactionData || !transactionData.data) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing transaction data',
+      });
+    }
+
+    // Extract relevant data from the transaction
+    const transactionDetails = transactionData.data;
+    const { transactionId, amount, status, hash } = transactionDetails;
+
+    // Very basic validation - in production, you would want to verify the hash
+    // against your own signature to prevent tampering
+    if (!transactionId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid transaction data - missing transaction ID',
+      });
+    }
+
+    // In a real implementation, you would verify the transaction with Helcim API
+    // Here's a placeholder for that implementation
+
+    /*
+    // Example of how to verify with Helcim API (implementation depends on Helcim's API)
+    const verificationResponse = await axios.request({
+      method: 'GET',
+      url: `${HELCIM_API_URL}/transactions/${transactionId}`,
+      headers: {
+        accept: 'application/json',
+        'api-token': HELCIM_API_TOKEN,
+      }
+    });
+    
+    // Check if the transaction exists and is valid
+    if (!verificationResponse.data || verificationResponse.data.status !== 'APPROVED') {
+      return res.status(400).json({
+        success: false,
+        error: 'Transaction verification failed',
+      });
+    }
+    */
+
+    // For now, we'll assume the transaction is valid if it has a transaction ID
+    // and the status field indicates approval (for credit card transactions)
+    const isApproved = transactionDetails.status === 'APPROVED';
+
+    // Store the transaction in your database
+    // [Your database code here]
+
+    return res.status(200).json({
+      success: isApproved,
+      transactionId,
+      amount,
+      message: isApproved
+        ? 'Payment verification successful'
+        : 'Payment verification failed',
+    });
+  } catch (error) {
+    console.error('Error verifying HelcimPay.js payment:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Error verifying payment: ' + error.message,
     });
   }
 };

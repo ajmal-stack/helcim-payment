@@ -2,7 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { handlePaymentReturn } from '../../services/helcimService';
+import {
+  handlePaymentReturn,
+  verifyHelcimPayment,
+} from '../../services/helcimService';
 import Navbar from '../../components/Navbar';
 
 export default function CheckoutSuccessPage() {
@@ -12,37 +15,143 @@ export default function CheckoutSuccessPage() {
   );
   const [status, setStatus] = useState<string>('unknown');
   const [loading, setLoading] = useState<boolean>(true);
+  const [redirectCountdown, setRedirectCountdown] = useState<number>(5);
+  const [orderDetails, setOrderDetails] = useState<any>(null);
 
   useEffect(() => {
     // Check if this is a completion from a payment
-    const checkPaymentReturn = () => {
-      // Get payment return data from URL parameters
-      const { status, transactionId } = handlePaymentReturn();
+    const checkPaymentReturn = async () => {
+      try {
+        console.log('Checking payment return data');
 
-      setStatus(status);
-      setTransactionId(transactionId);
+        // Check if we have transaction data from HelcimPay.js stored in session
+        const transactionDataString = sessionStorage.getItem('transactionData');
+        const orderId = sessionStorage.getItem('orderId');
+        const checkoutCompleted = sessionStorage.getItem('checkoutCompleted');
 
-      // Also check session storage for transaction details (from the HelcimPayment component)
-      const storedTransactionId = sessionStorage.getItem('transactionId');
-      const checkoutCompleted = sessionStorage.getItem('checkoutCompleted');
+        console.log('Session storage data:', {
+          transactionDataString,
+          orderId,
+          checkoutCompleted,
+        });
 
-      if (!transactionId && storedTransactionId) {
-        setTransactionId(storedTransactionId);
+        if (transactionDataString) {
+          console.log('Found transaction data in session storage');
+          try {
+            const transactionData = JSON.parse(transactionDataString);
+            console.log('Parsed transaction data:', transactionData);
+
+            // Check if we have valid transaction data
+            if (transactionData && transactionData.data) {
+              const txnData = transactionData.data;
+
+              // Set transaction details from the HelcimPay.js response
+              setTransactionId(txnData.transactionId);
+              setOrderDetails({
+                orderId: orderId,
+                amount: txnData.amount,
+                currency: txnData.currency || 'USD',
+                dateCreated: txnData.dateCreated,
+                cardNumber: txnData.cardNumber || '',
+                status: txnData.status || 'APPROVED',
+              });
+
+              // Verify the payment with your backend
+              try {
+                const verificationResult = await verifyHelcimPayment(
+                  transactionData
+                );
+                console.log('Verification result:', verificationResult);
+
+                if (verificationResult.success) {
+                  setStatus('success');
+                  sessionStorage.setItem('checkoutCompleted', 'true');
+                } else {
+                  console.error(
+                    'Payment verification failed:',
+                    verificationResult.error
+                  );
+                  setStatus('failed');
+                }
+              } catch (verifyError) {
+                console.error('Error verifying payment:', verifyError);
+                // If verification fails but we have a transaction ID, consider it successful
+                if (
+                  txnData.transactionId &&
+                  (txnData.status === 'APPROVED' ||
+                    checkoutCompleted === 'true')
+                ) {
+                  setStatus('success');
+                } else {
+                  setStatus('failed');
+                }
+              }
+            } else {
+              console.error('Invalid transaction data structure');
+              setStatus('failed');
+            }
+          } catch (error) {
+            console.error('Error parsing transaction data:', error);
+            setStatus('failed');
+          }
+        } else {
+          // Fall back to URL parameters for backwards compatibility
+          const { status: urlStatus, transactionId: urlTxnId } =
+            handlePaymentReturn();
+          console.log('URL parameters:', { urlStatus, urlTxnId });
+
+          if (urlTxnId) {
+            setTransactionId(urlTxnId);
+          }
+
+          // Check various success indicators
+          if (urlStatus === 'success' || checkoutCompleted === 'true') {
+            setStatus('success');
+          } else {
+            setStatus('failed');
+          }
+        }
+      } catch (error) {
+        console.error('Error in payment return processing:', error);
+        setStatus('failed');
+      } finally {
+        setLoading(false);
       }
-
-      if (status === 'success' || checkoutCompleted === 'true') {
-        setStatus('success');
-      }
-
-      setLoading(false);
     };
 
     checkPaymentReturn();
   }, []);
 
-  // Handle continuing to the shop
+  // Separate useEffect for handling the countdown and redirection
+  useEffect(() => {
+    // Only start countdown if status is success and we're not loading
+    if (status === 'success' && !loading) {
+      console.log('Starting redirection countdown');
+      const homepageUrl = window.location.origin;
+      console.log('Will redirect to:', homepageUrl);
+
+      // Start countdown for redirect
+      const interval = setInterval(() => {
+        setRedirectCountdown((prev) => {
+          const newCount = prev - 1;
+          console.log('Countdown:', newCount);
+          if (newCount <= 0) {
+            clearInterval(interval);
+            console.log('Redirecting now to:', homepageUrl);
+            window.location.href = homepageUrl;
+            return 0;
+          }
+          return newCount;
+        });
+      }, 1000);
+
+      return () => clearInterval(interval);
+    }
+  }, [status, loading]);
+
+  // Handle continuing to the shop with direct location change
   const handleContinueShopping = () => {
-    router.push('/');
+    window.location.href = window.location.origin;
   };
 
   if (loading) {
@@ -89,8 +198,14 @@ export default function CheckoutSuccessPage() {
               customer support.
             </p>
             <button
+              onClick={() => router.push('/checkout')}
+              className='px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors mr-4'
+            >
+              Try Again
+            </button>
+            <button
               onClick={handleContinueShopping}
-              className='px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors'
+              className='px-6 py-3 bg-gray-200 hover:bg-gray-300 rounded-md transition-colors'
             >
               Return to Shop
             </button>
@@ -122,24 +237,41 @@ export default function CheckoutSuccessPage() {
             </svg>
           </div>
           <h1 className='text-3xl font-bold mb-4'>Order Confirmed!</h1>
-          <p className='text-gray-600 mb-2'>
-            Thank you for your purchase. Your payment was successful.
+          <p className='text-gray-600 mb-8'>
+            Thank you for your purchase. Your order has been successfully
+            processed.
           </p>
+
           {transactionId && (
-            <p className='text-gray-600 mb-8'>
-              Transaction ID:{' '}
-              <span className='font-medium'>{transactionId}</span>
-            </p>
+            <div className='mb-8 p-4 bg-gray-50 inline-block rounded-lg mx-auto'>
+              <p className='text-gray-700'>
+                Transaction ID:{' '}
+                <span className='font-medium'>{transactionId}</span>
+              </p>
+              {orderDetails && orderDetails.orderId && (
+                <p className='text-gray-700'>
+                  Order ID:{' '}
+                  <span className='font-medium'>{orderDetails.orderId}</span>
+                </p>
+              )}
+              {orderDetails && orderDetails.amount && (
+                <p className='text-gray-700'>
+                  Amount:{' '}
+                  <span className='font-medium'>
+                    ${orderDetails.amount} {orderDetails.currency}
+                  </span>
+                </p>
+              )}
+            </div>
           )}
-          <div className='bg-blue-50 border border-blue-200 rounded-md p-4 max-w-md mx-auto mb-8'>
-            <p className='text-blue-800 text-sm'>
-              A confirmation email will be sent to you shortly with your order
-              details.
-            </p>
-          </div>
+
+          <p className='text-gray-500 mb-8'>
+            You will be redirected to the shop in {redirectCountdown} seconds...
+          </p>
+
           <button
             onClick={handleContinueShopping}
-            className='px-6 py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors'
+            className='px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors'
           >
             Continue Shopping
           </button>

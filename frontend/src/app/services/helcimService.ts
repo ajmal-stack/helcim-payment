@@ -8,15 +8,19 @@ interface PaymentInitializeRequest {
   customerCode?: string;
   invoiceNumber?: string;
   returnUrl: string;
+  homepageUrl?: string; // URL to redirect to after successful payment
 }
 
 interface PaymentResponse {
   success: boolean;
+  checkoutToken?: string; // HelcimPay.js checkout token
   helcimPayId?: string;
   paymentUrl?: string;
   transactionId?: string;
   responseCode?: string;
   responseMessage?: string;
+  redirectUrl?: string; // URL to redirect to after successful payment
+  status?: string; // Payment status (completed, pending, etc.)
   error?: string;
   details?: string;
 }
@@ -25,7 +29,7 @@ interface PaymentResponse {
  * Initialize a payment with Helcim
  *
  * @param data Payment request data
- * @returns Response with payment URL and ID
+ * @returns Response with checkout token for HelcimPay.js
  */
 export const initializePayment = async (
   data: PaymentInitializeRequest
@@ -36,6 +40,13 @@ export const initializePayment = async (
       data.returnUrl = window.location.origin + '/checkout/success';
     } else if (!data.returnUrl.startsWith('http')) {
       data.returnUrl = window.location.origin + data.returnUrl;
+    }
+
+    // Set homepage URL for redirect after successful payment if not provided
+    if (!data.homepageUrl) {
+      data.homepageUrl = window.location.origin;
+    } else if (!data.homepageUrl.startsWith('http')) {
+      data.homepageUrl = window.location.origin + data.homepageUrl;
     }
 
     console.log('Initializing payment with data:', data);
@@ -82,6 +93,54 @@ export const initializePayment = async (
 };
 
 /**
+ * Verify a payment token and transaction after processing through HelcimPay.js
+ *
+ * @param transactionData The transaction data returned from HelcimPay.js
+ * @returns Verification response
+ */
+export const verifyHelcimPayment = async (
+  transactionData: any
+): Promise<PaymentResponse> => {
+  try {
+    console.log('Verifying HelcimPay.js payment:', transactionData);
+
+    const response = await axios.post(`${API_BASE_URL}/verify-payment`, {
+      transactionData,
+    });
+
+    console.log('Payment verification response:', response.data);
+    return response.data;
+  } catch (error) {
+    if (axios.isAxiosError(error) && error.response) {
+      // Handle axios errors with response
+      const errorMessage =
+        typeof error.response.data === 'object' &&
+        error.response.data !== null &&
+        'error' in error.response.data
+          ? String(error.response.data.error)
+          : 'Failed to verify payment';
+
+      return {
+        success: false,
+        error: errorMessage,
+        details: error.response.data?.details || error.message,
+      };
+    }
+
+    // Handle other errors
+    let errorMessage = 'Network error occurred while verifying payment';
+    if (error instanceof Error) {
+      errorMessage = error.message;
+    }
+
+    return {
+      success: false,
+      error: errorMessage,
+    };
+  }
+};
+
+/**
  * Verify the status of a payment
  *
  * @param helcimPayId Payment ID to check
@@ -91,9 +150,19 @@ export const verifyPaymentStatus = async (
   helcimPayId: string
 ): Promise<PaymentResponse> => {
   try {
+    console.log('Verifying payment status for:', helcimPayId);
     const response = await axios.get(
       `${API_BASE_URL}/payment-status/${helcimPayId}`
     );
+    console.log('Payment status verification response:', response.data);
+
+    // Ensure we handle the redirectUrl properly
+    if (response.data.redirectUrl) {
+      console.log('Got redirectUrl from server:', response.data.redirectUrl);
+      // Store in session for immediate use
+      sessionStorage.setItem('homepageRedirectUrl', response.data.redirectUrl);
+    }
+
     return response.data;
   } catch (error) {
     if (axios.isAxiosError(error) && error.response) {

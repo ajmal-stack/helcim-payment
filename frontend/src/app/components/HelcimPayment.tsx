@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { initializePayment } from '../services/helcimService';
 
 interface HelcimPaymentProps {
@@ -14,6 +15,7 @@ interface HelcimPaymentProps {
   onPaymentError: (error: string) => void;
   onCancel: () => void;
   returnUrl?: string;
+  homepageUrl?: string;
 }
 
 const HelcimPayment = ({
@@ -23,43 +25,150 @@ const HelcimPayment = ({
   onPaymentError,
   onCancel,
   returnUrl,
+  homepageUrl,
 }: HelcimPaymentProps) => {
-  const [paymentUrl, setPaymentUrl] = useState<string | null>(null);
-  const [loading, setLoading] = useState<boolean>(false);
+  const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [checkoutToken, setCheckoutToken] = useState<string | null>(null);
+  const router = useRouter();
 
+  // Function to add the HelcimPay.js script to the page
+  const addHelcimPayScript = () => {
+    // Check if script already exists
+    if (
+      document.querySelector(
+        'script[src="https://secure.helcim.app/helcim-pay/services/start.js"]'
+      )
+    ) {
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.type = 'text/javascript';
+    script.src = 'https://secure.helcim.app/helcim-pay/services/start.js';
+    script.async = true;
+    script.onload = () => {
+      console.log('HelcimPay.js script loaded');
+    };
+    document.head.appendChild(script);
+  };
+
+  // Listen for payment events from the iframe
   useEffect(() => {
-    // Initialize payment on component mount
-    const startPaymentProcess = async () => {
+    if (!checkoutToken) return;
+
+    const handlePaymentMessage = (event: MessageEvent) => {
+      const helcimPayJsIdentifierKey = 'helcim-pay-js-' + checkoutToken;
+
+      if (event.data.eventName === helcimPayJsIdentifierKey) {
+        console.log('Received event from HelcimPay.js:', event.data);
+
+        if (event.data.eventStatus === 'ABORTED') {
+          console.error('Transaction failed!', event.data.eventMessage);
+          // Handle payment failure
+          onPaymentError(
+            typeof event.data.eventMessage === 'string'
+              ? event.data.eventMessage
+              : 'Payment was declined or cancelled.'
+          );
+
+          // Remove the iframe
+          removeHelcimPayIframe();
+        }
+
+        if (event.data.eventStatus === 'SUCCESS') {
+          console.log('Transaction success!', event.data.eventMessage);
+
+          try {
+            // Handle double-stringified response
+            let responseData = event.data.eventMessage;
+
+            // First parse if it's a string
+            if (typeof responseData === 'string') {
+              responseData = JSON.parse(responseData);
+            }
+
+            // Then handle the nested structure
+            if (responseData.data && responseData.data.data) {
+              const transactionData = responseData.data.data;
+
+              // Validate essential transaction data
+              if (!transactionData.transactionId) {
+                throw new Error('Missing transaction ID in response');
+              }
+
+              // Set success status in session storage
+              sessionStorage.setItem('checkoutCompleted', 'true');
+
+              // Store transaction data in session storage
+              sessionStorage.setItem(
+                'transactionData',
+                JSON.stringify({
+                  data: transactionData,
+                })
+              );
+              sessionStorage.setItem('orderId', orderId);
+
+              // Remove the iframe
+              removeHelcimPayIframe();
+
+              // Redirect to success page
+              const successUrl = returnUrl || '/checkout/success';
+              router.push(successUrl);
+            } else {
+              throw new Error('Invalid response data structure');
+            }
+          } catch (error) {
+            console.error('Error processing success response:', error);
+            onPaymentError('Error processing payment response');
+          }
+        }
+
+        if (event.data.eventStatus === 'HIDE') {
+          console.log('Payment modal was closed');
+          removeHelcimPayIframe();
+          onCancel();
+        }
+      }
+    };
+
+    // Add event listener
+    window.addEventListener('message', handlePaymentMessage);
+
+    // Clean up
+    return () => {
+      window.removeEventListener('message', handlePaymentMessage);
+    };
+  }, [checkoutToken, onPaymentError, onCancel, orderId, returnUrl, router]);
+
+  // Initialize payment and get the checkout token
+  useEffect(() => {
+    const fetchCheckoutToken = async () => {
       setLoading(true);
       setError(null);
 
       try {
-        // Don't include customerCode or invoiceNumber as they're causing issues with Helcim API
-
         // Calculate default return URL if not provided
         const calculatedReturnUrl =
           returnUrl || `${window.location.origin}/checkout/success`;
+        const calculatedHomepageUrl = homepageUrl || window.location.origin;
 
         console.log('Initializing payment with:', {
           amount,
           returnUrl: calculatedReturnUrl,
+          homepageUrl: calculatedHomepageUrl,
         });
 
         const response = await initializePayment({
           amount,
           returnUrl: calculatedReturnUrl,
+          homepageUrl: calculatedHomepageUrl,
         });
 
-        if (response.success && response.paymentUrl && response.helcimPayId) {
-          setPaymentUrl(response.paymentUrl);
-
-          // Automatically redirect to the Helcim payment page
-          console.log(
-            'Redirecting to Helcim payment URL:',
-            response.paymentUrl
-          );
-          window.location.href = response.paymentUrl;
+        if (response.success && response.checkoutToken) {
+          setCheckoutToken(response.checkoutToken);
+          // Add the HelcimPay.js script
+          addHelcimPayScript();
         } else {
           const errorMessage =
             typeof response.error === 'string'
@@ -84,13 +193,24 @@ const HelcimPayment = ({
       }
     };
 
-    startPaymentProcess();
-  }, [amount, customerData, onPaymentError, returnUrl]);
+    fetchCheckoutToken();
+  }, [amount, customerData, onPaymentError, returnUrl, homepageUrl]);
 
-  // Open Helcim payment redirect (manual fallback)
-  const openHelcimPayment = () => {
-    if (!paymentUrl) return;
-    window.location.href = paymentUrl;
+  // Function to open the HelcimPay modal
+  const openHelcimPayModal = () => {
+    if (!checkoutToken) return;
+
+    // Call the HelcimPay.js function to open the modal
+    // @ts-ignore - this function is added by the external script
+    window.appendHelcimPayIframe(checkoutToken, true);
+  };
+
+  // Function to remove the HelcimPay.js iframe
+  const removeHelcimPayIframe = () => {
+    const frame = document.getElementById('helcimPayIframe');
+    if (frame instanceof HTMLIFrameElement) {
+      frame.remove();
+    }
   };
 
   if (loading) {
@@ -143,9 +263,9 @@ const HelcimPayment = ({
 
       <div className='bg-blue-50 border border-blue-200 rounded-md p-4'>
         <p className='text-sm text-blue-800'>
-          You&apos;ll be redirected to Helcim&apos;s secure payment page to
-          complete your purchase. Your payment information is securely processed
-          by Helcim.
+          You&apos;ll be using Helcim&apos;s secure payment system to complete
+          your purchase. Your payment information is securely processed by
+          Helcim.
         </p>
       </div>
 
@@ -157,10 +277,10 @@ const HelcimPayment = ({
           Cancel
         </button>
         <button
-          onClick={openHelcimPayment}
+          onClick={openHelcimPayModal}
           className='flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors'
         >
-          Proceed to Payment
+          Pay Now
         </button>
       </div>
     </div>

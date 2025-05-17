@@ -463,6 +463,7 @@ export default function CheckoutPage() {
                     email: formData.email,
                   }}
                   returnUrl={`${window.location.origin}/checkout/success`}
+                  homepageUrl={window.location.origin}
                   onPaymentError={handlePaymentError}
                   onCancel={handlePaymentCancel}
                 />

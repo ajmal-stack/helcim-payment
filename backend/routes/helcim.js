@@ -11,4 +11,7 @@ router.post('/process-purchase', helcimController.processPurchase);
 // Check payment status
 router.get('/payment-status/:helcimPayId', helcimController.checkPaymentStatus);
 
+// Verify a HelcimPay.js payment
+router.post('/verify-payment', helcimController.verifyHelcimPayment);
+
 module.exports = router;
