@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "buildCommand": "npm run build",
+  "devCommand": "npm run dev",
+  "installCommand": "npm install",
+  "framework": "nextjs",
+  "env": {
+    "HELCIM_API_TOKEN": "@helcim_api_token",
+    "NEXT_PUBLIC_HELCIM_TERMINAL_ID": "@next_public_helcim_terminal_id",
+    "NEXT_PUBLIC_API_BASE_URL": "@next_public_api_base_url"
+  }
+}

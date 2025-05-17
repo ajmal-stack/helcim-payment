@@ -157,30 +157,136 @@ yarn build
 
 #### Vercel Deployment
 
+### 1. Prerequisites
+
+- A Vercel account (create one at vercel.com)
+- Git repository with your project
+- Helcim API credentials ready
+
+### 2. Prepare Your Project
+
+1. **Install Vercel CLI** (optional but recommended)
+
 ```bash
-npm i -g vercel
+npm install -g vercel
+```
+
+2. **Configure Environment Variables**
+   You'll need to set up the following environment variables in Vercel:
+
+- `HELCIM_API_TOKEN`
+- `NEXT_PUBLIC_HELCIM_TERMINAL_ID`
+- `NEXT_PUBLIC_API_BASE_URL`
+
+### 3. Deploy to Vercel
+
+#### Option 1: Deploy via Vercel Dashboard
+
+1. Go to [vercel.com/dashboard](https://vercel.com/dashboard)
+2. Click "New Project"
+3. Import your Git repository
+4. Configure your project:
+   - Framework Preset: Next.js
+   - Build Command: `npm run build`
+   - Output Directory: `.next`
+5. Add Environment Variables:
+   - Go to Project Settings > Environment Variables
+   - Add each required environment variable
+6. Deploy
+
+#### Option 2: Deploy via CLI
+
+1. Login to Vercel:
+
+```bash
+vercel login
+```
+
+2. Deploy the project:
+
+```bash
 vercel
 ```
 
-#### Other Platforms
+3. Follow the CLI prompts to configure your project
 
-- Follow platform-specific deployment instructions
-- Ensure SSL is enabled for secure payments
-- Configure proper CORS settings if needed
+### 4. Post-Deployment Steps
 
-### 3. Post-deployment Verification
+1. **Verify Environment Variables**
 
-1. **Test Live Integration**
+- Check if all environment variables are properly set
+- Verify they're accessible in your application
 
-   - Make a test purchase
-   - Verify payment processing
-   - Check success/failure redirects
-   - Confirm webhook functionality
+2. **Update API Base URL**
 
-2. **Monitor and Logging**
-   - Set up error monitoring
-   - Configure payment logging
-   - Set up alerts for failed transactions
+- Update `NEXT_PUBLIC_API_BASE_URL` to match your Vercel deployment URL
+- Format: `https://your-project.vercel.app/api`
+
+3. **Test Payment Flow**
+
+- Make a test purchase
+- Verify success/failure flows
+- Check webhook functionality
+
+### 5. Production Considerations
+
+1. **SSL/HTTPS**
+
+- Vercel automatically provides SSL certificates
+- All endpoints will be served over HTTPS
+
+2. **Domain Configuration**
+
+- Add a custom domain in Vercel dashboard
+- Update API base URL if using custom domain
+
+3. **Monitoring**
+
+- Set up Vercel Analytics (optional)
+- Configure error monitoring
+- Set up payment logging
+
+### 6. Troubleshooting
+
+Common deployment issues:
+
+1. **Build Failures**
+
+- Check build logs in Vercel dashboard
+- Verify all dependencies are properly listed in package.json
+- Check for environment variable references in build process
+
+2. **Runtime Errors**
+
+- Check Function Logs in Vercel dashboard
+- Verify environment variables are properly set
+- Check API endpoint responses
+
+3. **Payment Issues**
+
+- Verify Helcim API credentials
+- Check CORS settings
+- Validate webhook endpoints
+
+### 7. Maintenance
+
+1. **Updates**
+
+- Enable automatic deployments
+- Configure preview deployments for pull requests
+- Set up branch protections
+
+2. **Monitoring**
+
+- Review Vercel analytics
+- Monitor API performance
+- Track error rates
+
+3. **Scaling**
+
+- Vercel automatically handles scaling
+- Monitor usage metrics
+- Adjust plans as needed
 
 ## Security Considerations
 
